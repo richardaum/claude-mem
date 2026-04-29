@@ -339,6 +339,7 @@ export function ContextSettingsModal({
                   onChange={(e) => updateSetting('CLAUDE_MEM_PROVIDER', e.target.value)}
                 >
                   <option value="claude">Claude (uses your Claude account)</option>
+                  <option value="codex">Codex (uses your ChatGPT account)</option>
                   <option value="gemini">Gemini (uses API key)</option>
                   <option value="openrouter">OpenRouter / claude-mem observer</option>
                 </select>
@@ -358,6 +359,33 @@ export function ContextSettingsModal({
                     <option value="opus">opus (highest quality)</option>
                   </select>
                 </FormField>
+              )}
+
+              {formState.CLAUDE_MEM_PROVIDER === 'codex' && (
+                <>
+                  <FormField
+                    label="Codex Binary Path"
+                    tooltip="Optional absolute path to codex CLI; leave empty to auto-detect from PATH"
+                  >
+                    <input
+                      type="text"
+                      value={formState.CLAUDE_MEM_CODEX_PATH || ''}
+                      onChange={(e) => updateSetting('CLAUDE_MEM_CODEX_PATH', e.target.value)}
+                      placeholder="Auto-detect codex from PATH"
+                    />
+                  </FormField>
+                  <FormField
+                    label="Codex Model"
+                    tooltip="Model passed to codex exec; leave empty to use Codex CLI default"
+                  >
+                    <input
+                      type="text"
+                      value={formState.CLAUDE_MEM_CODEX_MODEL || 'gpt-5.5'}
+                      onChange={(e) => updateSetting('CLAUDE_MEM_CODEX_MODEL', e.target.value)}
+                      placeholder="gpt-5.5"
+                    />
+                  </FormField>
+                </>
               )}
 
               {formState.CLAUDE_MEM_PROVIDER === 'gemini' && (
