@@ -388,6 +388,77 @@
       padding-top: 1px;
     }
 
+    .brand-lockup {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    /* A small maker's mark for this custom fork. The connected nodes echo the
+       viewer's memory graph without competing with the primary logo. */
+    .edition-mark {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      height: 24px;
+      padding: 0 9px 0 7px;
+      overflow: hidden;
+      border: 1px solid var(--color-border-prompt);
+      border-radius: 999px;
+      background: var(--color-prompt-badge-bg);
+      color: var(--color-prompt-badge-text);
+      font-family: 'Monaspace Radon', monospace;
+      font-size: 9px;
+      font-weight: 650;
+      letter-spacing: 0.035em;
+      line-height: 1;
+      text-transform: uppercase;
+      white-space: nowrap;
+      transform: rotate(-1deg);
+      box-shadow: 0 1px 0 rgba(130, 80, 223, 0.08);
+    }
+
+    .edition-mark::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(110deg, transparent 20%, rgba(255, 255, 255, 0.28) 48%, transparent 72%);
+      transform: translateX(-115%);
+      animation: edition-glint 8s ease-in-out infinite;
+      pointer-events: none;
+    }
+
+    .edition-mark svg {
+      width: 14px;
+      height: 14px;
+      flex: 0 0 auto;
+      fill: currentColor;
+      stroke: currentColor;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+    }
+
+    .edition-mark-compact {
+      display: none;
+    }
+
+    @keyframes edition-glint {
+      0%, 78%, 100% {
+        transform: translateX(-115%);
+      }
+      88% {
+        transform: translateX(115%);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .edition-mark::after {
+        animation: none;
+      }
+    }
+
     .status {
       display: flex;
       align-items: center;
@@ -1401,6 +1472,18 @@
         gap: 12px;
       }
 
+      .edition-mark-full {
+        display: none;
+      }
+
+      .edition-mark-compact {
+        display: inline;
+      }
+
+      .edition-mark::after {
+        display: none;
+      }
+
       .status {
         gap: 6px;
       }
@@ -1473,6 +1556,31 @@
 
       .logo-text {
         font-size: 18px;
+      }
+
+      .brand-lockup {
+        gap: 7px;
+      }
+
+      .edition-mark-full {
+        display: none;
+      }
+
+      .edition-mark-compact {
+        display: inline;
+      }
+
+      .edition-mark {
+        width: 23px;
+        height: 23px;
+        padding: 0;
+        justify-content: center;
+        font-size: 8px;
+        transform: rotate(-4deg);
+      }
+
+      .edition-mark svg {
+        display: none;
       }
 
       .status {

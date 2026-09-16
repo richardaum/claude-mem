@@ -42,7 +42,23 @@ export function Header({
               </div>
             )}
           </div>
-          <span className="logo-text">claude-mem</span>
+          <span className="brand-lockup">
+            <span className="logo-text">claude-mem</span>
+            <span
+              className="edition-mark"
+              title="Custom claude-mem build by Richard Lopes"
+              aria-label="Richard Lopes edition"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="6" cy="6" r="2" />
+                <circle cx="18" cy="7" r="2" />
+                <circle cx="12" cy="18" r="2" />
+                <path d="M7.7 7.1 11 15.9M16.2 8.3l-3 7.7M8 6.2l8-.1" />
+              </svg>
+              <span className="edition-mark-full">Richard Lopes edition</span>
+              <span className="edition-mark-compact" aria-hidden="true">RL</span>
+            </span>
+          </span>
         </h1>
         {/* Most people running the free plugin never learn the trial exists.
             It sits beside the logo (not in .status) so it survives the
