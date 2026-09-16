@@ -8,11 +8,11 @@ import { useSSE } from './hooks/useSSE';
 import { useSettings } from './hooks/useSettings';
 import { usePagination } from './hooks/usePagination';
 import { useTheme } from './hooks/useTheme';
+import { useProjectFilter } from './hooks/useProjectFilter';
 import { Observation, Summary, UserPrompt } from './types';
 import { mergeAndDeduplicateByProject } from './utils/data';
 
 export function App() {
-  const [currentFilter, setCurrentFilter] = useState('');
   const [contextPreviewOpen, setContextPreviewOpen] = useState(false);
   const [logsModalOpen, setLogsModalOpen] = useState(false);
   const [welcomeDismissed, setWelcomeDismissed] = useState<boolean>(getStoredWelcomeDismissed);
@@ -23,6 +23,7 @@ export function App() {
   const { observations, summaries, prompts, projects, isProcessing, queueDepth } = useSSE();
   const { settings, saveSettings, isSaving, saveStatus } = useSettings();
   const { preference, setThemePreference } = useTheme();
+  const { currentFilter, setCurrentFilter, replaceCurrentFilter } = useProjectFilter();
   const pagination = usePagination(currentFilter);
 
   const matchesSelection = useCallback((item: { project: string }) => {
@@ -30,10 +31,10 @@ export function App() {
   }, [currentFilter]);
 
   useEffect(() => {
-    if (currentFilter && !projects.includes(currentFilter)) {
-      setCurrentFilter('');
+    if (projects.length > 0 && currentFilter && !projects.includes(currentFilter)) {
+      replaceCurrentFilter('');
     }
-  }, [projects, currentFilter]);
+  }, [projects, currentFilter, replaceCurrentFilter]);
 
   const allObservations = useMemo(() => {
     const live = observations.filter(matchesSelection);
