@@ -332,7 +332,7 @@ export function ContextSettingsModal({
             >
               <FormField
                 label="AI Provider"
-                tooltip="Choose the provider that generates observations: Claude (via Agent SDK), Gemini (via REST API), or OpenRouter — also used by the claude-mem observer"
+                tooltip="Choose the provider that generates observations: Claude, Codex, Gemini, or OpenRouter"
               >
                 <select
                   value={formState.CLAUDE_MEM_PROVIDER || 'claude'}
@@ -364,25 +364,14 @@ export function ContextSettingsModal({
               {formState.CLAUDE_MEM_PROVIDER === 'codex' && (
                 <>
                   <FormField
-                    label="Codex Binary Path"
-                    tooltip="Optional absolute path to codex CLI; leave empty to auto-detect from PATH"
-                  >
-                    <input
-                      type="text"
-                      value={formState.CLAUDE_MEM_CODEX_PATH || ''}
-                      onChange={(e) => updateSetting('CLAUDE_MEM_CODEX_PATH', e.target.value)}
-                      placeholder="Auto-detect codex from PATH"
-                    />
-                  </FormField>
-                  <FormField
                     label="Codex Model"
                     tooltip="Model passed to codex exec; leave empty to use Codex CLI default"
                   >
                     <input
                       type="text"
-                      value={formState.CLAUDE_MEM_CODEX_MODEL || 'gpt-5.5'}
+                      value={formState.CLAUDE_MEM_CODEX_MODEL || ''}
                       onChange={(e) => updateSetting('CLAUDE_MEM_CODEX_MODEL', e.target.value)}
-                      placeholder="gpt-5.5"
+                      placeholder="Codex CLI default"
                     />
                   </FormField>
                 </>

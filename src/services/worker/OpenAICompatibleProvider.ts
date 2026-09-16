@@ -137,7 +137,12 @@ export abstract class OpenAICompatibleProvider<TConfig extends { apiKey: string;
   }
 
   async startSession(session: ActiveSession, worker?: WorkerRef): Promise<void> {
-    const config = this.getConfig();
+    let config: TConfig;
+    try {
+      config = this.getConfig();
+    } catch (error: unknown) {
+      return this.handleSessionError(error, session, worker);
+    }
     const { apiKey, model } = config;
     session.lastModelId = model;
     this.prepareSessionExtras(session, config);
@@ -414,6 +419,8 @@ export abstract class OpenAICompatibleProvider<TConfig extends { apiKey: string;
       // Same shape, same list: handleGeneratorExit already honours 'auth', and
       // credentials that are fixed by /login are no more fatal than a 429.
       case 'auth_invalid':
+        return `auth:${error.kind}`;
+      case 'setup_required':
         return `auth:${error.kind}`;
       default:
         return null;

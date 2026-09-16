@@ -31,6 +31,10 @@ export interface SettingsDefaults {
   CLAUDE_MEM_GEMINI_API_KEY: string;
   CLAUDE_MEM_GEMINI_MODEL: string;  
   CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED: string;
+  CLAUDE_MEM_CODEX_PATH: string;
+  CLAUDE_MEM_CODEX_MODEL: string;
+  CLAUDE_MEM_CODEX_TIMEOUT_MS: string;
+  CLAUDE_MEM_CLI_MAX_OUTPUT_BYTES: string;
   CLAUDE_MEM_OPENROUTER_API_KEY: string;
   CLAUDE_MEM_OPENROUTER_MODEL: string;
   CLAUDE_MEM_OPENROUTER_BASE_URL: string;
@@ -184,6 +188,10 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_GEMINI_API_KEY: '',  // Empty by default, can be set via UI or env
     CLAUDE_MEM_GEMINI_MODEL: 'gemini-flash-latest',  // Google-maintained alias → current GA Flash model (stays valid for new API keys)
     CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED: 'true',  // Rate limiting ON by default for free tier users
+    CLAUDE_MEM_CODEX_PATH: '', // Empty means auto-detect `codex` from PATH
+    CLAUDE_MEM_CODEX_MODEL: '', // Empty uses the Codex CLI default model
+    CLAUDE_MEM_CODEX_TIMEOUT_MS: '300000',
+    CLAUDE_MEM_CLI_MAX_OUTPUT_BYTES: '1048576',
     CLAUDE_MEM_OPENROUTER_API_KEY: '',  // Empty by default, can be set via UI or env
     CLAUDE_MEM_OPENROUTER_MODEL: 'xiaomi/mimo-v2-flash:free',  // Default OpenRouter model (free tier)
     CLAUDE_MEM_OPENROUTER_BASE_URL: '',  // #2382/#2590/#2622/#2393 — optional OpenAI-compatible base URL (e.g. https://api.deepseek.com, http://localhost:1234/v1). Empty = default OpenRouter endpoint.

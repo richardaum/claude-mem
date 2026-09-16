@@ -19,7 +19,7 @@ import { logger } from '../../../../src/utils/logger.js';
 import * as realProviderDispatch from '../../../../src/services/worker/provider-dispatch.js';
 const realProviderDispatchSnapshot = { ...realProviderDispatch };
 
-const providerSelectionBox: { current: 'claude' | 'gemini' | 'openrouter' } = { current: 'claude' };
+const providerSelectionBox: { current: 'claude' | 'codex' | 'gemini' | 'openrouter' } = { current: 'claude' };
 
 mock.module('../../../../src/services/worker/provider-dispatch.js', () => ({
   ...realProviderDispatchSnapshot,
@@ -109,11 +109,13 @@ function makeRoutes(session: ActiveSession, agents: {
   const completionHandler = {
     finalizeSession: mock(() => Promise.resolve()),
   };
+  const codexAgent = { startSession: mock(() => Promise.resolve()) };
 
   const routes = new SessionRoutes(
     sessionManager as any,
     {} as any, // dbManager — unused by ensureGeneratorRunning
     agents.sdkAgent as any,
+    codexAgent as any,
     agents.geminiAgent as any,
     agents.openRouterAgent as any,
     {} as any, // eventBroadcaster — unused by ensureGeneratorRunning

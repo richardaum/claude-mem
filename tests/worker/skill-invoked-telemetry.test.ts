@@ -194,6 +194,7 @@ describe('skill_invoked from session-init slash prompts', () => {
       {} as any,
       {} as any,
       {} as any,
+      {} as any,
     );
 
     const app = express();

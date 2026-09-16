@@ -498,9 +498,9 @@ describe('SettingsDefaultsManager', () => {
       expect(defaults.CLAUDE_MEM_GEMINI_API_KEY).toBeDefined();
       expect(defaults.CLAUDE_MEM_OPENROUTER_API_KEY).toBeDefined();
       expect(defaults.CLAUDE_MEM_CODEX_MODEL).toBeDefined();
-      expect(defaults.CLAUDE_MEM_CODEX_MAX_CONTEXT_MESSAGES).toBeDefined();
-      expect(defaults.CLAUDE_MEM_CODEX_MAX_TOKENS).toBeDefined();
+      expect(defaults.CLAUDE_MEM_CODEX_PATH).toBeDefined();
       expect(defaults.CLAUDE_MEM_CODEX_TIMEOUT_MS).toBeDefined();
+      expect(defaults.CLAUDE_MEM_CLI_MAX_OUTPUT_BYTES).toBeDefined();
 
       expect(defaults.CLAUDE_MEM_DATA_DIR).toBeDefined();
       expect(defaults.CLAUDE_MEM_LOG_LEVEL).toBeDefined();
