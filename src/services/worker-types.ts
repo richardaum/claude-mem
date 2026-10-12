@@ -54,6 +54,8 @@ export interface ActiveSession {
   idleTimedOut?: boolean;  
   lastGeneratorActivity: number;
   modelOverride?: string;
+  /** Working directory of the Claude Code session, from the most recent captured observation. Used to pick a provider profile (CLAUDE_MEM_PROVIDER_PROFILES). */
+  cwd?: string;
   lastSummaryStored?: boolean;
   pendingAgentId?: string | null;
   pendingAgentType?: string | null;

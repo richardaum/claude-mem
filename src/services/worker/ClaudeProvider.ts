@@ -7,6 +7,7 @@ import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js
 import { USER_SETTINGS_PATH, OBSERVER_SESSIONS_DIR, ensureDir, paths } from '../../shared/paths.js';
 import { buildIsolatedEnvWithFreshOAuth, getAuthMethodDescription } from '../../shared/EnvManager.js';
 import { findClaudeExecutable } from '../../shared/find-claude-executable.js';
+import { resolveProviderProfile, type ResolvedProviderProfile } from '../../shared/provider-profiles.js';
 import type { ActiveSession, SDKUserMessage } from '../worker-types.js';
 import { ModeManager } from '../domain/ModeManager.js';
 import { processAgentResponse, snapshotResponseContext, type WorkerRef } from './agents/index.js';
@@ -229,7 +230,25 @@ export class ClaudeProvider {
       throw err;
     }
 
-    const modelId = session.modelOverride || this.getModelId();
+    // Per-folder provider routing (CLAUDE_MEM_PROVIDER_PROFILES). Fail closed: a
+    // folder whose rule points at an unusable profile is never observed with the
+    // default credentials.
+    const routing = resolveProviderProfile(
+      SettingsDefaultsManager.loadFromFile(paths.settings()).CLAUDE_MEM_PROVIDER_PROFILES,
+      { cwd: session.cwd, project: session.project },
+    );
+    if (routing.kind === 'unresolved') {
+      logger.error('SDK', 'Provider profile unavailable; not starting observer', {
+        sessionDbId: session.sessionDbId,
+        project: session.project,
+        profile: routing.name,
+        reason: routing.reason,
+      });
+      return;
+    }
+    const profile = routing.kind === 'profile' ? routing.profile : undefined;
+
+    const modelId = session.modelOverride || profile?.model || this.getModelId();
     session.lastModelId = typeof modelId === 'string' ? modelId : undefined;
     // Each query() starts a fresh SDK process, so its total_cost_usd
     // accumulator starts from zero — reset the per-turn cost baseline with it.
@@ -237,7 +256,7 @@ export class ClaudeProvider {
 
     const activeResponseContext = { current: snapshotResponseContext(session) };
     const compressField: FieldCompressor = (text, budgetChars, signal) =>
-      this.compressField(text, budgetChars, session, modelId, claudePath, signal);
+      this.compressField(text, budgetChars, session, modelId, claudePath, signal, profile);
     const messageGenerator = this.createMessageGenerator(session, cwdTracker, activeResponseContext, worker, compressField);
 
     this.resetCarriedMemorySessionId(session);
@@ -270,8 +289,8 @@ export class ClaudeProvider {
     );
 
     try {
-      const isolatedEnv = sanitizeEnv(await buildIsolatedEnvWithFreshOAuth());
-      const authMethod = getAuthMethodDescription();
+      const isolatedEnv = sanitizeEnv(await buildIsolatedEnvWithFreshOAuth(true, profile));
+      const authMethod = getAuthMethodDescription(profile);
 
       logger.info('SDK', 'Starting SDK query', {
         sessionDbId: session.sessionDbId,
@@ -609,8 +628,9 @@ export class ClaudeProvider {
     },
     modelId: string,
     claudePath: string,
+    profile?: ResolvedProviderProfile,
   ): Promise<string | null> {
-    const isolatedEnv = sanitizeEnv(await buildIsolatedEnvWithFreshOAuth());
+    const isolatedEnv = sanitizeEnv(await buildIsolatedEnvWithFreshOAuth(true, profile));
     const controller = new AbortController();
     const abort = () => controller.abort();
     const signals = context.signals ?? [];
@@ -659,6 +679,7 @@ export class ClaudeProvider {
     modelId: string,
     claudePath: string,
     signal: AbortSignal,
+    profile?: ResolvedProviderProfile,
   ): Promise<string | null> {
     return this.runStandaloneObserverPrompt(
       buildFieldCompressionPrompt(text, budgetChars),
@@ -670,6 +691,7 @@ export class ClaudeProvider {
       },
       modelId,
       claudePath,
+      profile,
     );
   }
 

@@ -247,6 +247,11 @@ export class SessionManager {
       session = this.initializeSession(sessionDbId);
     }
 
+    // Remember where this session runs so the observer's provider profile can be
+    // chosen per folder (CLAUDE_MEM_PROVIDER_PROFILES). Latest wins: a session
+    // that `cd`s elsewhere is routed by where it is now.
+    if (data.cwd) session.cwd = data.cwd;
+
     const message: PendingMessage = {
       type: 'observation',
       tool_name: data.tool_name,

@@ -5,6 +5,7 @@ import type { DatabaseManager } from '../DatabaseManager.js';
 import type { SessionEventBroadcaster } from '../events/SessionEventBroadcaster.js';
 import { stripMemoryTags } from '../../../utils/tag-stripping.js';
 import { isProjectExcluded } from '../../../utils/project-filter.js';
+import { resolveProviderProfile } from '../../../shared/provider-profiles.js';
 import { SettingsDefaultsManager } from '../../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../../shared/paths.js';
 import { getProjectContext } from '../../../utils/project-name.js';
@@ -75,6 +76,17 @@ export async function ingestObservation(payload: ObservationPayload): Promise<In
 
   if (cwd && isProjectExcluded(cwd, settings.CLAUDE_MEM_EXCLUDED_PROJECTS)) {
     return { ok: true, status: 'skipped', reason: 'project_excluded' };
+  }
+
+  // Fail closed: a folder routed to a provider profile that can't be loaded must
+  // not fall back to the default credentials (that would send it to the very
+  // provider the rule exists to avoid). Skip capture and say why.
+  if (cwd) {
+    const routing = resolveProviderProfile(settings.CLAUDE_MEM_PROVIDER_PROFILES, { cwd, project });
+    if (routing.kind === 'unresolved') {
+      logger.warn('ENV', 'Skipping capture: provider profile unavailable', { profile: routing.name, reason: routing.reason, project });
+      return { ok: true, status: 'skipped', reason: 'provider_profile_unavailable' };
+    }
   }
 
   const skipTools = new Set(

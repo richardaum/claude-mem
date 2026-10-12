@@ -5,6 +5,7 @@ import { basename } from 'path';
 import { logger } from '../utils/logger.js';
 import { paths, DEFAULT_CLAUDE_CONFIG_DIR } from './paths.js';
 import { SettingsDefaultsManager } from './SettingsDefaultsManager.js';
+import { CREDENTIAL_KEYS, type ResolvedProviderProfile } from './provider-profiles.js';
 import {
   readClaudeOAuthToken,
   writeStaleMarker,
@@ -63,20 +64,9 @@ export interface ClaudeMemEnv {
   OPENROUTER_API_KEY?: string;
 }
 
-/**
- * The only env keys ever copied out of ~/.claude-mem/.env. This is the
- * whitelist that load/save/buildIsolatedEnv enforce — only these five keys
- * cross the boundary. Do NOT replace the per-key copy loops with
- * Object.assign(result, parsed): that would let arbitrary keys (a leaked
- * CLAUDE_CODE_* or a typo'd ANTHROPIC_* variant) through (see #2375).
- */
-const CREDENTIAL_KEYS = [
-  'ANTHROPIC_API_KEY',
-  'ANTHROPIC_BASE_URL',
-  'ANTHROPIC_AUTH_TOKEN',
-  'GEMINI_API_KEY',
-  'OPENROUTER_API_KEY',
-] as const;
+// CREDENTIAL_KEYS (the whitelist enforced by load/save/buildIsolatedEnv) lives in
+// provider-profiles.ts so profile files share it. See #2375 for why it must stay a
+// per-key copy and never Object.assign(result, parsed).
 
 // Node's stdlib .env parser (util.parseEnv, Node ≥20.12 / stable in 24):
 // handles `#` comments, blank lines, KEY=VALUE, and quote-stripping. The
@@ -180,7 +170,10 @@ export function saveClaudeMemEnv(env: ClaudeMemEnv): void {
   }
 }
 
-export function buildIsolatedEnv(includeCredentials: boolean = true): Record<string, string> {
+export function buildIsolatedEnv(
+  includeCredentials: boolean = true,
+  profile?: ResolvedProviderProfile,
+): Record<string, string> {
   const isolatedEnv: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined && !BLOCKED_ENV_VARS.includes(key)) {
@@ -203,7 +196,10 @@ export function buildIsolatedEnv(includeCredentials: boolean = true): Record<str
   isolatedEnv.CLAUDE_CONFIG_DIR = resolveEffectiveClaudeConfigDir(configDirSettings.CLAUDE_MEM_CLAUDE_CONFIG_DIR);
 
   if (includeCredentials) {
-    const credentials = loadClaudeMemEnv();
+    // A resolved profile REPLACES ~/.claude-mem/.env for this spawn (it never
+    // merges with it): a profile with no credential keys means "OAuth", and must
+    // not inherit the default file's gateway URL/token.
+    const credentials = profile ? profile.credentials : loadClaudeMemEnv();
 
     for (const key of CREDENTIAL_KEYS) {
       const value = credentials[key];
@@ -237,8 +233,9 @@ export function buildIsolatedEnv(includeCredentials: boolean = true): Record<str
  */
 export async function buildIsolatedEnvWithFreshOAuth(
   includeCredentials: boolean = true,
+  profile?: ResolvedProviderProfile,
 ): Promise<Record<string, string>> {
-  const isolatedEnv = buildIsolatedEnv(includeCredentials);
+  const isolatedEnv = buildIsolatedEnv(includeCredentials, profile);
 
   // Defensive: ensure no parent-process OAuth token survives this path even
   // if BLOCKED_ENV_VARS is bypassed. Issue #2215.
@@ -329,7 +326,14 @@ export function hasAnthropicAuthToken(): boolean {
   return !!env.ANTHROPIC_AUTH_TOKEN;
 }
 
-export function getAuthMethodDescription(): string {
+export function getAuthMethodDescription(providerProfile?: ResolvedProviderProfile): string {
+  if (providerProfile) {
+    const c = providerProfile.credentials;
+    const via = `profile "${providerProfile.name}"`;
+    if (c.ANTHROPIC_API_KEY) return `API key (from ${via})`;
+    if (c.ANTHROPIC_AUTH_TOKEN || c.ANTHROPIC_BASE_URL) return `Gateway (from ${via})`;
+    return `Claude Code OAuth token (${via}, no credentials; read from system keychain at spawn)`;
+  }
   if (hasAnthropicApiKey()) {
     return 'API key (from ~/.claude-mem/.env)';
   }
