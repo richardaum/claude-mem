@@ -14,6 +14,20 @@ describe('SessionStore', () => {
     store.close();
   });
 
+  it('persists and returns the session cwd, and ignores a no-op rewrite', () => {
+    const id = store.createSDKSession('claude-session-cwd', 'test-project', 'p');
+    expect(store.getSessionById(id)?.cwd).toBeNull();
+
+    store.setSessionCwd(id, '/Users/me/projects/work/api');
+    expect(store.getSessionById(id)?.cwd).toBe('/Users/me/projects/work/api');
+
+    store.setSessionCwd(id, '/Users/me/projects/work/api');
+    expect(store.getSessionById(id)?.cwd).toBe('/Users/me/projects/work/api');
+
+    store.setSessionCwd(id, '/Users/me/projects/personal/career');
+    expect(store.getSessionById(id)?.cwd).toBe('/Users/me/projects/personal/career');
+  });
+
   it('should correctly count user prompts', () => {
     const claudeId = 'claude-session-1';
     store.createSDKSession(claudeId, 'test-project', 'initial prompt');

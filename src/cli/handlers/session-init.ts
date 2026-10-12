@@ -116,6 +116,9 @@ export const sessionInitHandler: EventHandler = {
       {
         contentSessionId: sessionId,
         project,
+        // Lets the worker route the observer by folder (CLAUDE_MEM_PROVIDER_PROFILES)
+        // BEFORE the first observer spawn, which happens at init with no observation yet.
+        cwd,
         prompt,
         platformSource,
       },

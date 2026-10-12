@@ -137,6 +137,7 @@ export class SessionManager {
       contentSessionId: dbSession.content_session_id,
       memorySessionId: null,  // Always start fresh - SDK will capture new ID
       project: suppliedProject || dbSession.project,
+      cwd: dbSession.cwd ?? undefined,
       platformSource: dbSession.platform_source,
       observedModel: dbSession.observed_model ?? undefined,
       observedBilling: dbSession.observed_billing ?? undefined,
@@ -250,7 +251,10 @@ export class SessionManager {
     // Remember where this session runs so the observer's provider profile can be
     // chosen per folder (CLAUDE_MEM_PROVIDER_PROFILES). Latest wins: a session
     // that `cd`s elsewhere is routed by where it is now.
-    if (data.cwd) session.cwd = data.cwd;
+    if (data.cwd && data.cwd !== session.cwd) {
+      session.cwd = data.cwd;
+      this.dbManager.getSessionStore().setSessionCwd(sessionDbId, data.cwd);
+    }
 
     const message: PendingMessage = {
       type: 'observation',

@@ -160,6 +160,7 @@ interface SdkSessionDetailRow {
   status: string;
   observed_model: string | null;
   observed_billing: string | null;
+  cwd: string | null;
 }
 
 export class SessionStore {
@@ -214,6 +215,7 @@ export class SessionStore {
     this.initializeSyncHubLaunchBaseline();
     this.normalizeConceptTags();
     this.ensureSDKSessionsObservedColumns();
+    this.ensureSDKSessionsCwdColumn();
     this.ensureToolUsesTable();
     this.ensureTelegramWrapupsTable();
   }
@@ -1903,6 +1905,16 @@ export class SessionStore {
     this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(50, new Date().toISOString());
   }
 
+  // Working directory of the observed session. Drives per-folder provider routing
+  // (CLAUDE_MEM_PROVIDER_PROFILES) and must survive a worker restart. Idempotent and
+  // column-based on purpose: some databases already carry `cwd` (written by other
+  // builds), so there is no schema_versions number to claim here.
+  private ensureSDKSessionsCwdColumn(): void {
+    const columns = this.db.query('PRAGMA table_info(sdk_sessions)').all() as TableColumnInfo[];
+    if (columns.some(col => col.name === 'cwd')) return;
+    this.db.run('ALTER TABLE sdk_sessions ADD COLUMN cwd TEXT');
+  }
+
   // v51 — durable `tool_uses` backup index for raw tool I/O.
   //
   // `pending_messages` stays exactly what it is (the generation queue, drained
@@ -2667,12 +2679,22 @@ export class SessionStore {
     return (stmt.get(...params) as SummaryDetailRow | null) || null;
   }
 
+  /**
+   * Persist the session's working directory (sdk_sessions.cwd). The observer's
+   * provider profile is chosen from it, so it must survive a worker restart:
+   * a session rebuilt from the DB with no cwd would otherwise fall back to the
+   * default credentials.
+   */
+  setSessionCwd(id: number, cwd: string): void {
+    this.db.prepare('UPDATE sdk_sessions SET cwd = ? WHERE id = ? AND COALESCE(cwd, \'\') != ?').run(cwd, id, cwd);
+  }
+
   getSessionById(id: number): SdkSessionDetailRow | null {
     const stmt = this.db.prepare(`
       SELECT id, content_session_id, memory_session_id, project,
              COALESCE(platform_source, '${DEFAULT_PLATFORM_SOURCE}') as platform_source,
              user_prompt, custom_title, status,
-             observed_model, observed_billing
+             observed_model, observed_billing, cwd
       FROM sdk_sessions
       WHERE id = ?
       LIMIT 1

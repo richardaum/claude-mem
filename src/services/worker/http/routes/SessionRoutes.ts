@@ -18,6 +18,7 @@ import { SessionEventBroadcaster } from '../../events/SessionEventBroadcaster.js
 import { PrivacyCheckValidator } from '../../validation/PrivacyCheckValidator.js';
 import { SettingsDefaultsManager } from '../../../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../../../shared/paths.js';
+import { resolveProviderProfile } from '../../../../shared/provider-profiles.js';
 import { getProjectContext } from '../../../../utils/project-name.js';
 import { handleGeneratorExit } from '../../session/GeneratorExitHandler.js';
 import { telemetryBuffer } from '../../../telemetry/buffer.js';
@@ -738,6 +739,7 @@ export class SessionRoutes extends BaseRouteHandler {
     const { contentSessionId } = req.body;
 
     const project = req.body.project || 'unknown';
+    const cwd = typeof req.body.cwd === 'string' && req.body.cwd.trim() ? req.body.cwd : undefined;
     const rawPrompt = typeof req.body.prompt === 'string' ? req.body.prompt : undefined;
     const platformSource = this.getPlatformSourceFromRequest(req);
     const customTitle = req.body.customTitle || undefined;
@@ -746,6 +748,21 @@ export class SessionRoutes extends BaseRouteHandler {
       logger.debug('HTTP', 'session-init: skipping internal protocol payload before session creation', { contentSessionId });
       res.json({ skipped: true, reason: 'internal_protocol' });
       return;
+    }
+
+    // Fail closed (see ingestObservation): a folder routed to a provider profile
+    // that can't be loaded must not start an observer on the default credentials.
+    // The init prompt (the user's own prompt text) is what that observer receives.
+    if (cwd) {
+      const routing = resolveProviderProfile(
+        SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH).CLAUDE_MEM_PROVIDER_PROFILES,
+        { cwd, project },
+      );
+      if (routing.kind === 'unresolved') {
+        logger.warn('ENV', 'session-init: provider profile unavailable; skipping', { profile: routing.name, reason: routing.reason, project });
+        res.json({ skipped: true, reason: 'provider_profile_unavailable' });
+        return;
+      }
     }
 
     const slashSkillId = firstPartySkillFromSlashPrompt(rawPrompt);
@@ -865,6 +882,12 @@ export class SessionRoutes extends BaseRouteHandler {
     if (platformSource !== 'cursor') {
       const sdkPrompt = cleanedPrompt.startsWith('/') ? cleanedPrompt.substring(1) : cleanedPrompt;
       const session = this.sessionManager.initializeSession(sessionDbId, sdkPrompt, promptNumber, project);
+      // Must be set before ensureGeneratorRunning below: the observer's provider
+      // profile is chosen from this cwd at spawn time.
+      if (cwd && cwd !== session.cwd) {
+        session.cwd = cwd;
+        store.setSessionCwd(sessionDbId, cwd);
+      }
 
       const latestPrompt = store.getLatestUserPrompt(session.contentSessionId, sessionDbId);
 
