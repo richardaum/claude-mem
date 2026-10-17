@@ -144,7 +144,7 @@
 
 ## Installing This Fork (richardaum/claude-mem)
 
-This fork carries the Codex provider work (`feat/codex-provider-v13.25.1`, merged into `main`) and is installed **from this repo**, not from the official npm package. Do not use `npx claude-mem install`, `npx claude-mem update` or `npx claude-mem repair`: they pull the official package and overwrite the fork.
+This fork carries the Codex provider work (`feat/codex-provider-v13.25.1`, merged into `main`) and is installed **from this repo**, not from the official npm package. Do not use `npx claude-mem <anything>` — `npx` always resolves the name `claude-mem` against the npm registry unless this fork's CLI is globally linked, and that link breaks on every fresh clone (it points at the old clone's path). Call the built CLI directly instead (step 4 below); that bypasses npx name resolution entirely, so there's nothing for it to get wrong.
 
 **Requirements:** Node >= 20 (install via nvm), Claude Code CLI (`claude`).
 
@@ -157,21 +157,21 @@ npx claude-mem uninstall
 claude plugin marketplace add richardaum/claude-mem
 claude plugin install claude-mem@thedotmack
 
-# 3. Install runtime deps (bun is installed with the plugin; use it directly)
+# 3. Install runtime deps and build the fork's CLI (bun is installed with the plugin; use it directly)
 cd ~/.claude/plugins/cache/thedotmack/claude-mem/<version> && ~/.bun/bin/bun install
-cd ~/.claude/plugins/marketplaces/thedotmack && ~/.bun/bin/bun install
+cd ~/.claude/plugins/marketplaces/thedotmack && ~/.bun/bin/bun install && ~/.bun/bin/bun run build
 
-# 4. Start the worker and verify
-npx claude-mem start
-npx claude-mem doctor   # run from outside the repo; dashboard at http://127.0.0.1:37701
+# 4. Start the worker and verify — run the built CLI directly, not through npx
+node dist/npx-cli/index.js start
+node dist/npx-cli/index.js doctor   # run from this repo root; dashboard at http://127.0.0.1:37701
 ```
 
 Restart Claude Code afterwards so the hooks load.
 
 **Notes**
-- Run `npx` commands from a directory outside this repo; inside it, `npx` resolves the unbuilt local package and fails with `claude-mem: command not found`.
-- To update the fork: `git push` to `main`, then `claude plugin marketplace update thedotmack`, reinstall the plugin and re-run step 3.
-- `npx claude-mem doctor` should report the plugin path under `.../cache/thedotmack/claude-mem/<fork version>`. A different version means the official package was installed.
+- Always invoke the fork via `node dist/npx-cli/index.js <command>` from `~/.claude/plugins/marketplaces/thedotmack` (built in step 3). Never `npx claude-mem <command>` — see the warning above.
+- To update the fork: `git push` to `main`, then `claude plugin marketplace update thedotmack`, reinstall the plugin, and re-run step 3 (`bun install && bun run build`) so `dist/npx-cli/index.js` matches the new code.
+- `node dist/npx-cli/index.js doctor` should report the plugin path under `.../cache/thedotmack/claude-mem/<fork version>`. A different version means something pulled the official package.
 - This fork is behind `thedotmack/claude-mem` upstream (`upstream` remote). Merge upstream deliberately; expect conflicts around the Codex provider.
 
 ## Quick Start
