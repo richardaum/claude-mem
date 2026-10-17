@@ -153,13 +153,13 @@ This fork carries the Codex provider work (`feat/codex-provider-v13.25.1`, merge
 npx claude-mem stop
 npx claude-mem uninstall
 
-# 2. Register this fork as the `thedotmack` marketplace and install the plugin
+# 2. Register this fork as the `richardaum` marketplace and install the plugin
 claude plugin marketplace add richardaum/claude-mem
-claude plugin install claude-mem@thedotmack
+claude plugin install claude-mem@richardaum
 
 # 3. Install runtime deps and build the fork's CLI (bun is installed with the plugin; use it directly)
-cd ~/.claude/plugins/cache/thedotmack/claude-mem/<version> && ~/.bun/bin/bun install
-cd ~/.claude/plugins/marketplaces/thedotmack && ~/.bun/bin/bun install && ~/.bun/bin/bun run build
+cd ~/.claude/plugins/cache/richardaum/claude-mem/<version> && ~/.bun/bin/bun install
+cd ~/.claude/plugins/marketplaces/richardaum && ~/.bun/bin/bun install && ~/.bun/bin/bun run build
 
 # 4. Start the worker and verify — run the built CLI directly, not through npx
 node dist/npx-cli/index.js start
@@ -169,9 +169,9 @@ node dist/npx-cli/index.js doctor   # run from this repo root; dashboard at http
 Restart Claude Code afterwards so the hooks load.
 
 **Notes**
-- Always invoke the fork via `node dist/npx-cli/index.js <command>` from `~/.claude/plugins/marketplaces/thedotmack` (built in step 3). Never `npx claude-mem <command>` — see the warning above.
-- To update the fork: `git push` to `main`, then `claude plugin marketplace update thedotmack`, reinstall the plugin, and re-run step 3 (`bun install && bun run build`) so `dist/npx-cli/index.js` matches the new code.
-- `node dist/npx-cli/index.js doctor` should report the plugin path under `.../cache/thedotmack/claude-mem/<fork version>`. A different version means something pulled the official package.
+- Always invoke the fork via `node dist/npx-cli/index.js <command>` from `~/.claude/plugins/marketplaces/richardaum` (built in step 3). Never `npx claude-mem <command>` — see the warning above.
+- To update the fork: `git push` to `main`, then `claude plugin marketplace update richardaum`, reinstall the plugin, and re-run step 3 (`bun install && bun run build`) so `dist/npx-cli/index.js` matches the new code.
+- `node dist/npx-cli/index.js doctor` should report the plugin path under `.../cache/richardaum/claude-mem/<fork version>`. A different version means something pulled the official package.
 - This fork is behind `thedotmack/claude-mem` upstream (`upstream` remote). Merge upstream deliberately; expect conflicts around the Codex provider.
 
 ## Quick Start
