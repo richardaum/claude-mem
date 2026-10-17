@@ -144,7 +144,7 @@
 
 ## Installing This Fork (richardaum/claude-mem)
 
-This fork carries the Codex provider work (`feat/codex-provider-v13.25.1`, merged into `main`) and is installed **from this repo**, not from the official npm package. Do not use `npx claude-mem <anything>` — `npx` always resolves the name `claude-mem` against the npm registry unless this fork's CLI is globally linked, and that link breaks on every fresh clone (it points at the old clone's path). Call the built CLI directly instead (step 4 below); that bypasses npx name resolution entirely, so there's nothing for it to get wrong.
+This fork carries the Codex provider work (`feat/codex-provider-v13.25.1`, merged into `main`) and is installed **from this repo**, not from the official npm package. Do not use `npx claude-mem <anything>` — `npx` always resolves the name `claude-mem` against the npm registry unless this fork's CLI is globally linked, and that link breaks on every fresh clone (it points at the old clone's path). Call the built CLI directly instead (steps 4-5 below); that bypasses npx name resolution entirely, so there's nothing for it to get wrong.
 
 **Requirements:** Node >= 20 (install via nvm), Claude Code CLI (`claude`).
 
@@ -161,7 +161,10 @@ claude plugin install claude-mem@richardaum
 cd ~/.claude/plugins/cache/richardaum/claude-mem/<version> && ~/.bun/bin/bun install
 cd ~/.claude/plugins/marketplaces/richardaum && ~/.bun/bin/bun install && ~/.bun/bin/bun run build
 
-# 4. Start the worker and verify — run the built CLI directly, not through npx
+# 4. Register the hooks and worker service — run the built CLI directly, not through npx
+node dist/npx-cli/index.js install
+
+# 5. Start the worker and verify
 node dist/npx-cli/index.js start
 node dist/npx-cli/index.js doctor   # run from this repo root; dashboard at http://127.0.0.1:37701
 ```
@@ -169,6 +172,7 @@ node dist/npx-cli/index.js doctor   # run from this repo root; dashboard at http
 Restart Claude Code afterwards so the hooks load.
 
 **Notes**
+- `install` (step 4) is what registers the plugin hooks and worker service — `claude plugin install` (step 2) only clones the marketplace source, it doesn't configure claude-mem itself. Skipping step 4 makes `start`/`doctor` fail with `claude-mem is not installed`.
 - Always invoke the fork via `node dist/npx-cli/index.js <command>` from `~/.claude/plugins/marketplaces/richardaum` (built in step 3). Never `npx claude-mem <command>` — see the warning above.
 - To update the fork: `git push` to `main`, then `claude plugin marketplace update richardaum`, reinstall the plugin, and re-run step 3 (`bun install && bun run build`) so `dist/npx-cli/index.js` matches the new code.
 - `node dist/npx-cli/index.js doctor` should report the plugin path under `.../cache/richardaum/claude-mem/<fork version>`. A different version means something pulled the official package.

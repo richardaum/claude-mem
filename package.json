@@ -19,11 +19,11 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/thedotmack/claude-mem.git"
+    "url": "https://github.com/richardaum/claude-mem.git"
   },
-  "homepage": "https://github.com/thedotmack/claude-mem#readme",
+  "homepage": "https://github.com/richardaum/claude-mem#readme",
   "bugs": {
-    "url": "https://github.com/thedotmack/claude-mem/issues"
+    "url": "https://github.com/richardaum/claude-mem/issues"
   },
   "type": "module",
   "bin": {
