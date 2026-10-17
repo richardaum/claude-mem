@@ -710,6 +710,11 @@ function copyPluginToMarketplace(): void {
     const sourcePath = join(packageRoot, entry);
     const destPath = join(marketplaceDir, entry);
     if (!existsSync(sourcePath)) continue;
+    // Running the built CLI directly from inside the marketplace directory
+    // (our fork's documented flow, to bypass npx name resolution) makes
+    // packageRoot === marketplaceDir. source and dest are then the same
+    // path, so deleting dest before copying would delete source too.
+    if (sourcePath === destPath) continue;
 
     if (existsSync(destPath)) {
       rmSync(destPath, { recursive: true, force: true });
