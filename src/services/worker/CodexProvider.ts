@@ -1,297 +1,406 @@
-import { spawn } from 'child_process';
-import {
-  accessSync,
-  constants,
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  statSync,
-} from 'fs';
-import { homedir, tmpdir } from 'os';
-import path from 'path';
-
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../shared/paths.js';
-import { logger } from '../../utils/logger.js';
-import type { ActiveSession, ConversationMessage } from '../worker-types.js';
+import type { ActiveSession, ConversationMessage, PendingMessageWithId } from '../worker-types.js';
 import { OpenAICompatibleProvider, type ProviderQueryResult } from './OpenAICompatibleProvider.js';
-import { ClassifiedProviderError } from './provider-errors.js';
+import {
+  CODEX_ISOLATION_UNATTESTED_CODE,
+  CODEX_MALFORMED_OUTPUT_CODE,
+  CODEX_NO_AGENT_MESSAGE_CODE,
+  CODEX_SETUP_REQUIRED_CODE,
+  type CodexAppServerTurnResult,
+} from './CodexAppServerClient.js';
+import { CodexAppServerPool, boundedInteger } from './CodexAppServerPool.js';
+import { ClassifiedProviderError, CODEX_COOLDOWN_REFUSAL_CODE, isClassified } from './provider-errors.js';
+import type { PaidSendBudget } from './paid-send-budget.js';
+import { resolveLlmTimeoutMs, withRetry } from './retry.js';
+import {
+  clearQuotaCooldown,
+  getQuotaCooldown,
+  isQuotaCooldownActive,
+  recordAuthCooldown,
+  recordQuotaExhausted,
+  type QuotaCooldownState,
+} from '../../shared/quota-cooldown.js';
+import {
+  CODEX_CLI_SETUP_RECHECK_COOLDOWN_MS,
+  clearDependencyStatus,
+  getDependencyStatus,
+  isDependencyStatusInCooldown,
+  recordCodexCliSetupRequired,
+} from '../../shared/dependency-health.js';
+import { OBS_PROMPT_FIELD_MAX_CHARS, type ObservationPromptParts } from '../../sdk/prompts.js';
+import { observationMetadata, queuedObservationPrompt, boundObservationPrompt, sameObservationContext } from './codex-observation-batch.js';
+import { logger } from '../../utils/logger.js';
 
-const CHARS_PER_TOKEN_ESTIMATE = 4;
-const DEFAULT_TIMEOUT_MS = 300_000;
-const DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024;
-const BASE_ENV_ALLOWLIST = [
-  'PATH', 'HOME', 'CODEX_HOME', 'TMPDIR', 'TMP', 'TEMP', 'USER', 'LOGNAME',
-  'SHELL', 'LANG', 'LC_ALL', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'HTTP_PROXY',
-  'HTTPS_PROXY', 'NO_PROXY',
-];
-
-interface CliConfig {
+interface CodexConfig {
   apiKey: string;
   model: string;
-  executablePath: string;
-  args: string[];
-  timeoutMs: number;
-  maxOutputBytes: number;
-  env: NodeJS.ProcessEnv;
+  codexPath: string;
+  reasoningEffort: string | null;
+  signal?: AbortSignal;
+  /** The session this config serves, for per-session fault counting. */
+  sessionDbId?: number;
 }
 
-interface CliRunResult {
-  stdout: string;
-  stderr: string;
+type CodexErrorKind = ConstructorParameters<typeof ClassifiedProviderError>[1]['kind'];
+
+/**
+ * Every reasoning effort a Codex release has accepted. The app-server passes
+ * the value through untyped, so the settings boundary checks it; an older CLI
+ * or a model that serves fewer refuses the rest, which is classified as setup.
+ */
+export const CODEX_REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const;
+
+export function isCodexReasoningEffort(value: string): boolean {
+  return (CODEX_REASONING_EFFORTS as readonly string[]).includes(value);
 }
 
-function positiveInt(value: string, fallback: number): number {
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
+/**
+ * A 4xx Codex answers the same way every time: the model, the effort, or the
+ * shape of the request is wrong for this account or this CLI.
+ */
+const CODEX_REFUSED_REQUEST = 'refused_request';
 
-function findExecutable(command: string): string | null {
-  const trimmed = command.trim().replace(/^~(?=$|[\\/])/, homedir());
-  if (!trimmed) return null;
+const CODEX_ERROR_INFO_KINDS: Record<string, CodexErrorKind | typeof CODEX_REFUSED_REQUEST> = {
+  usageLimitExceeded: 'quota_exhausted',
+  unauthorized: 'auth_invalid',
+  rateLimitExceeded: 'rate_limit',
+  contextWindowExceeded: 'context_overflow',
+  badRequest: CODEX_REFUSED_REQUEST,
+  // Refusals of this request's content: the next batch may well pass, so
+  // drop this one instead of holding every Codex request behind it.
+  cyberPolicy: 'unrecoverable',
+  misalignmentPolicyViolation: 'unrecoverable',
+};
 
-  const candidates = path.isAbsolute(trimmed) || trimmed.includes(path.sep)
-    ? [path.resolve(trimmed)]
-    : (process.env.PATH ?? '').split(path.delimiter).flatMap((directory) => {
-        if (!directory) return [];
-        if (process.platform !== 'win32') return [path.join(directory, trimmed)];
-        const extensions = (process.env.PATHEXT ?? '.EXE;.CMD;.BAT').split(';');
-        return extensions.map((extension) => path.join(directory, `${trimmed}${extension}`));
-      });
+/**
+ * Refused by the app-server or the CLI itself before any model saw the
+ * request: a JSON-RPC rejection of its shape (-32600 invalid request, -32601
+ * method not found, -32602 invalid params), or an older CLI rejecting our
+ * flags.
+ */
+const CODEX_PROTOCOL_REFUSAL = /RPC error -3260[0-2]\b|unexpected argument|unrecognized subcommand|unknown variant/i;
 
-  for (const candidate of candidates) {
-    try {
-      if (!existsSync(candidate) || !statSync(candidate).isFile()) continue;
-      accessSync(candidate, constants.X_OK);
-      return candidate;
-    } catch {
-      // Keep looking through PATH.
-    }
-  }
+/**
+ * The app-server's own JSON-RPC faults (-32603 internal error, -32700 parse
+ * error): nothing about the request or the account to act on, whatever the
+ * text quotes, so they stay transient.
+ */
+const CODEX_SERVER_FAULT = /RPC error -(?:32603|32700)\b/;
+
+/** Sessions whose run of app-server faults is tracked at once (oldest dropped). */
+const MAX_TRACKED_FAULT_SESSIONS = 256;
+
+const CODEX_REQUEST_REMEDY =
+  'Check CLAUDE_MEM_CODEX_MODEL and CLAUDE_MEM_CODEX_REASONING_EFFORT in ~/.claude-mem/settings.json '
+  + "(leave them empty for Codex's defaults) and update the Codex CLI.";
+
+const CODEX_ISOLATION_REMEDY =
+  'Codex loaded instructions or MCP servers that the memory observer cannot switch off. Remove them from '
+  + 'your Codex configuration, update the Codex CLI, or choose another observer provider.';
+
+/** Maps the app-server's structured CodexErrorInfo, which is more stable than its display text. */
+function classifyCodexErrorInfo(info: unknown): CodexErrorKind | typeof CODEX_REFUSED_REQUEST | null {
+  if (typeof info === 'string') return CODEX_ERROR_INFO_KINDS[info] ?? null;
+  if (!info || typeof info !== 'object') return null;
+  const [detail] = Object.values(info as Record<string, unknown>);
+  const status = (detail as { httpStatusCode?: unknown } | null)?.httpStatusCode;
+  if (typeof status !== 'number') return null;
+  if (status === 401 || status === 403) return 'auth_invalid';
+  if (status === 429) return 'rate_limit';
+  // A request timeout is the one 4xx a retry can clear.
+  if (status >= 400 && status < 500 && status !== 408) return CODEX_REFUSED_REQUEST;
   return null;
 }
 
-function buildChildEnvironment(): NodeJS.ProcessEnv {
-  const result: NodeJS.ProcessEnv = {};
-  for (const name of BASE_ENV_ALLOWLIST) {
-    if (process.env[name] !== undefined) result[name] = process.env[name];
+export function classifyCodexError(cause: unknown): ClassifiedProviderError {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  const code = (cause as { code?: unknown } | null)?.code;
+  const structuredKind = classifyCodexErrorInfo((cause as { codexErrorInfo?: unknown } | null)?.codexErrorInfo);
+  let kind: CodexErrorKind = 'transient';
+  let action: string | undefined;
+  if (code === CODEX_NO_AGENT_MESSAGE_CODE || code === CODEX_MALFORMED_OUTPUT_CODE) {
+    // A completed, billed turn whose output was missing or malformed: an
+    // output failure, never resent. Decided by code, so its diagnostic counts
+    // are never read as an HTTP status.
+    return new ClassifiedProviderError(`Codex: ${message.slice(0, 500)}`, {
+      kind: 'unrecoverable', paidSendOutcome: 'output_failure', cause, code,
+    });
+  } else if (code === CODEX_ISOLATION_UNATTESTED_CODE) {
+    kind = 'setup_required';
+    action = CODEX_ISOLATION_REMEDY;
+  } else if (structuredKind && structuredKind !== CODEX_REFUSED_REQUEST) {
+    kind = structuredKind;
+  } else if (CODEX_SERVER_FAULT.test(message)) {
+    // Whatever its text quotes (a usage limit, a login, a parser), a fault of
+    // the app-server neither arms the account breaker nor holds capture
+    // behind the setup gate.
+    kind = 'transient';
+  } else if (code === CODEX_SETUP_REQUIRED_CODE || code === 'ENOENT' || /executable not found|command not found|ENOENT/i.test(message)) {
+    // Fixed on this machine (install the CLI, `codex login`), never by retrying.
+    kind = 'setup_required';
+  } else if (/not logged in|codex login|unauthorized|authentication|ChatGPT auth|requires Codex CLI|\b40[13]\b/i.test(message)) {
+    kind = 'auth_invalid';
+  } else if (/usage limit|quota|insufficient credits|plan limit|billing/i.test(message)) {
+    kind = 'quota_exhausted';
+  } else if (/rate limit|\b429\b/i.test(message)) {
+    kind = 'rate_limit';
+  } else if (/context (length|window)|prompt (is )?too long/i.test(message)) {
+    kind = 'context_overflow';
+  } else if (structuredKind === CODEX_REFUSED_REQUEST || CODEX_PROTOCOL_REFUSAL.test(message)) {
+    // Refused the same way until the settings or the CLI change: a setup
+    // failure, held behind the codex_cli gate and shown at SessionStart,
+    // never a transport blip resumed forever.
+    kind = 'setup_required';
+    action = CODEX_REQUEST_REMEDY;
   }
-  return result;
+  return new ClassifiedProviderError(`Codex: ${message.slice(0, 500)}`, { kind, cause, ...(action ? { action } : {}) });
 }
 
-export function classifyCodexCliFailure(detail: string, cause: unknown): ClassifiedProviderError {
-  const lower = detail.toLowerCase();
-  const label = 'Codex CLI';
-  if (lower.includes('not logged in') || lower.includes('login required') || lower.includes('unauthorized') || lower.includes('401')) {
-    return new ClassifiedProviderError(`${label} authentication is required`, { kind: 'auth_invalid', cause });
-  }
-  if (lower.includes('quota') || lower.includes('allowance') || lower.includes('usage limit') || lower.includes('insufficient credits')) {
-    return new ClassifiedProviderError(`${label} reported exhausted quota`, { kind: 'quota_exhausted', cause });
-  }
-  if (lower.includes('rate limit') || lower.includes('429')) {
-    return new ClassifiedProviderError(`${label} reported a rate limit`, { kind: 'rate_limit', cause });
-  }
-  if (lower.includes('timed out') || lower.includes('network') || lower.includes('econnreset') || /\b5\d\d\b/.test(lower)) {
-    return new ClassifiedProviderError(`${label} failed temporarily`, { kind: 'transient', cause });
-  }
-  return new ClassifiedProviderError(`${label} exited unsuccessfully`, { kind: 'unrecoverable', cause });
+/**
+ * The refusal an armed Codex breaker stands for, so a request it withholds
+ * pauses its session exactly as the request that armed it did.
+ */
+function cooldownRefusal(cooldown: QuotaCooldownState): ClassifiedProviderError {
+  const kind: CodexErrorKind = cooldown.cause === 'auth'
+    ? 'auth_invalid'
+    : cooldown.window === 'rate_limit' ? 'rate_limit' : 'quota_exhausted';
+  return new ClassifiedProviderError(cooldown.message, { kind, cause: null, code: CODEX_COOLDOWN_REFUSAL_CODE });
 }
 
-export function buildCodexArgs(model: string): string[] {
-  return [
-    'exec',
-    '--skip-git-repo-check',
-    '--ephemeral',
-    '--ignore-user-config',
-    '--ignore-rules',
-    '--color',
-    'never',
-    '--sandbox',
-    'read-only',
-    '-o',
-    '{output}',
-    ...(model ? ['-m', '{model}'] : []),
-    '-',
-  ];
+/**
+ * Arm the shared breaker (or the codex_cli setup gate) before the app-server
+ * releases its queue, so a request another session queued behind this one is
+ * withheld instead of earning the same refusal. The session runner books the
+ * failure again when it reaches it; re-arming within the same moment is a
+ * no-op in effect.
+ */
+function publishCodexFailure(error: ClassifiedProviderError): void {
+  if (error.code === CODEX_COOLDOWN_REFUSAL_CODE) return;
+  switch (error.kind) {
+    case 'quota_exhausted':
+      recordQuotaExhausted('codex', error.message);
+      logger.warn('SDK', 'Codex usage limit reached; pausing Codex requests until a quota probe succeeds', {
+        message: error.message,
+      });
+      break;
+    case 'auth_invalid':
+      recordAuthCooldown('codex', error.message);
+      logger.warn('SDK', 'Codex refused the ChatGPT login; pausing Codex requests until a probe succeeds', {
+        message: error.message,
+      });
+      break;
+    case 'setup_required':
+      recordCodexCliSetupRequired(error.message, error.action);
+      logger.warn('SDK', 'Codex CLI or login is not set up; pausing Codex starts until a recovery probe succeeds', {
+        message: error.message,
+      });
+      break;
+  }
 }
 
-function abortError(): Error {
-  const error = new Error('CLI request aborted');
-  error.name = 'AbortError';
-  return error;
-}
-
-export class CodexProvider extends OpenAICompatibleProvider<CliConfig> {
+/** Native subscription transport using the existing observer session lifecycle. */
+export class CodexProvider extends OpenAICompatibleProvider<CodexConfig> {
   protected readonly providerName = 'Codex';
   protected readonly syntheticIdPrefix = 'codex';
-  protected readonly forwardEmptyMessageResponse = false;
+  protected readonly forwardEmptyMessageResponse = true;
+  /** Per session: app-server faults since its last served request (see query). */
+  private readonly serverFaultsBySession = new Map<number, number>();
+  private readonly appServer = new CodexAppServerPool(boundedInteger(
+    SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH).CLAUDE_MEM_CODEX_MAX_CONCURRENT_AGENTS, 2, 8,
+  ));
 
-  protected getConfig(): CliConfig {
+  async close(): Promise<void> {
+    await this.appServer.close();
+  }
+
+  protected getConfig(): CodexConfig {
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
-    const configuredCommand = settings.CLAUDE_MEM_CODEX_PATH || 'codex';
-    const executablePath = findExecutable(configuredCommand);
-    if (!executablePath) {
-      throw new ClassifiedProviderError(`${this.providerName} executable was not found`, {
-        kind: 'setup_required',
-        cause: new Error('CLI executable unavailable'),
-      });
+    const codexPath = settings.CLAUDE_MEM_CODEX_PATH.trim() || 'codex';
+    if (process.platform === 'win32' && /[\0\r\n&|<>()^%!\"]/.test(codexPath)) {
+      throw new Error('CLAUDE_MEM_CODEX_PATH contains unsafe shell characters');
     }
-
-    const model = settings.CLAUDE_MEM_CODEX_MODEL;
-    const args = buildCodexArgs(model);
-    const timeoutMs = positiveInt(settings.CLAUDE_MEM_CODEX_TIMEOUT_MS, DEFAULT_TIMEOUT_MS);
-    const maxOutputBytes = positiveInt(settings.CLAUDE_MEM_CLI_MAX_OUTPUT_BYTES, DEFAULT_MAX_OUTPUT_BYTES);
-
     return {
-      apiKey: 'local-cli',
-      model,
-      executablePath,
-      args,
-      timeoutMs,
-      maxOutputBytes,
-      env: buildChildEnvironment(),
+      // The shared lifecycle expects a credential marker; auth stays in Codex CLI.
+      apiKey: 'codex-subscription',
+      model: settings.CLAUDE_MEM_CODEX_MODEL.trim(),
+      codexPath,
+      reasoningEffort: settings.CLAUDE_MEM_CODEX_REASONING_EFFORT.trim() || null,
     };
   }
 
+  protected override readonly rejectAbortedObservation = true;
+
+  /** A Codex turn carries no output-token cap, so the condense budget stays the field cap's. */
+  protected override fieldCompressionMaxOutputTokens(): number | undefined {
+    return undefined;
+  }
+
+  /**
+   * A Codex backlog would pay one round trip, and one full history replay on
+   * a fresh ephemeral thread, per observation. Claim the queued observations
+   * already at the FIFO head that share this one's prompt number, agent and
+   * cwd into the same turn, within a count and character budget, without
+   * waiting for more. The claimed ids ride on the session, so the normal
+   * confirm/reset acknowledges or preserves the whole batch.
+   */
+  protected override observationTurnPrompt(session: ActiveSession, first: PendingMessageWithId, prompt: ObservationPromptParts): string {
+    const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
+    const count = boundedInteger(settings.CLAUDE_MEM_CODEX_OBSERVATION_BATCH_SIZE, 8, 32);
+    const configuredChars = boundedInteger(settings.CLAUDE_MEM_CODEX_OBSERVATION_BATCH_MAX_CHARS, 32_000, 128_000);
+    const maxChars = configuredChars >= 4_000 ? configuredChars : 32_000;
+    let combined = boundObservationPrompt(prompt, maxChars, observationMetadata(first));
+    for (let size = 1; size < count; size++) {
+      let addition = '';
+      const next = this.sessionManager.claimNextObservation(session.sessionDbId, candidate => {
+        if (!sameObservationContext(first, candidate)) return false;
+        // Do not add an oversized field that would need its own compression pass.
+        if ([candidate.tool_input, candidate.tool_response].some(field =>
+          (JSON.stringify(field, null, 2) ?? '').length > OBS_PROMPT_FIELD_MAX_CHARS)) return false;
+        const rawChars = JSON.stringify([candidate.tool_input, candidate.tool_response]).length;
+        addition = queuedObservationPrompt(candidate);
+        return Math.max(rawChars, addition.length) + combined.length + 2 <= maxChars;
+      });
+      if (!next) break;
+      combined += '\n\n' + addition;
+    }
+    return combined;
+  }
+
   protected missingApiKeyError(): Error {
-    return new Error(`${this.providerName} is not configured`);
+    return new Error('Sign in to Codex CLI with codex login');
   }
 
   protected estimateTokens(text: string): number {
-    return Math.ceil(text.length / CHARS_PER_TOKEN_ESTIMATE);
+    return Math.ceil(text.length / 4);
   }
 
   protected buildLastUsage(result: ProviderQueryResult): ActiveSession['lastUsage'] {
-    return result.inputTokens !== undefined && result.outputTokens !== undefined
-      ? { input: result.inputTokens, output: result.outputTokens }
-      : null;
+    return {
+      input: result.inputTokens ?? 0,
+      output: result.outputTokens ?? 0,
+    };
   }
 
-  protected async query(history: ConversationMessage[], config: CliConfig, signal?: AbortSignal): Promise<ProviderQueryResult> {
+  protected prepareSessionExtras(session: ActiveSession, config: CodexConfig): void {
+    config.signal = session.abortController.signal;
+    config.sessionDbId = session.sessionDbId;
+    session.lastModelId = config.model || 'codex-default';
+  }
+
+  /**
+   * One request on the persistent app-server. `signal` (a field condensation
+   * racing its own deadline) is honoured alongside the session's, and the
+   * per-attempt deadline is the observer's CLAUDE_MEM_LLM_TIMEOUT_MS unless
+   * the caller passes its own (the field pass does).
+   */
+  protected async query(
+    history: ConversationMessage[],
+    config: CodexConfig,
+    signal?: AbortSignal,
+    perAttemptTimeoutMs?: number,
+    paidSendBudget?: PaidSendBudget,
+  ): Promise<ProviderQueryResult> {
+    const abortSignal = config.signal && signal
+      ? AbortSignal.any([config.signal, signal])
+      : signal ?? config.signal;
+    const timeoutMs = perAttemptTimeoutMs ?? resolveLlmTimeoutMs();
     const prompt = [
-      'You are the claude-mem memory compression worker.',
-      'Use earlier messages only as context. Answer only the final user message.',
-      'Return only the structured XML or plain text requested by that final message. Do not add markdown fences.',
-      '',
-      JSON.stringify(history),
-    ].join('\n');
-    const tempDir = mkdtempSync(path.join(tmpdir(), 'claude-mem-cli-'));
-    const outputPath = path.join(tempDir, 'last-message.txt');
-    const args = config.args.map((arg) => arg.replaceAll('{model}', config.model).replaceAll('{output}', outputPath));
-
+      'You are the claude-mem memory compression worker. Use only the supplied conversation; do not call tools.',
+      'Follow the latest user request: XML for observations/summaries, plain text for payload compression.',
+      ...history.map(message => `${message.role.toUpperCase()}:\n${message.content}`),
+    ].join('\n\n');
+    // Pool slots run concurrently: a success may only clear the breaker or
+    // setup status it was admitted under, never a newer failure another slot
+    // recorded meanwhile (each record installs a new object).
+    const admittedQuota = getQuotaCooldown('codex');
+    const admittedSetup = getDependencyStatus('codex_cli');
+    let result: CodexAppServerTurnResult;
     try {
-      logger.debug('SDK', 'Querying Codex CLI', {
-        turns: history.length,
-        model: config.model || 'default',
-        timeoutMs: config.timeoutMs,
-      });
-      const result = await this.runCli(config, args, prompt, tempDir, signal);
-      let content = '';
-      if (config.args.some((arg) => arg.includes('{output}')) && existsSync(outputPath)) {
-        if (statSync(outputPath).size > config.maxOutputBytes) {
-          throw new ClassifiedProviderError(`${this.providerName} output exceeded the configured limit`, {
-            kind: 'unrecoverable',
-            cause: new Error('CLI output file too large'),
-          });
-        }
-        content = readFileSync(outputPath, 'utf8').trim();
-      }
-      content ||= result.stdout.trim();
-      if (!content) {
-        logger.warn('SDK', 'Codex CLI returned an empty response');
-      }
-      const inputTokens = this.estimateTokens(prompt);
-      const outputTokens = this.estimateTokens(content);
-      return { content, inputTokens, outputTokens, tokensUsed: inputTokens + outputTokens };
-    } finally {
-      rmSync(tempDir, { recursive: true, force: true });
+      result = await this.runTurnWithRetry(prompt, config, timeoutMs, abortSignal, paidSendBudget);
+    } catch (error) {
+      this.noteServerFault(error, config.sessionDbId);
+      // A completed turn with no agent message, or with malformed structured
+      // output, surfaces as an output failure; the session turn passes it on
+      // as an empty reply (OpenAICompatibleProvider.queryObserverTurn).
+      throw error;
     }
+    if (config.sessionDbId !== undefined) this.serverFaultsBySession.delete(config.sessionDbId);
+    // A served request is the recovery probe succeeding.
+    const quota = getQuotaCooldown('codex');
+    if (quota && quota === admittedQuota) clearQuotaCooldown('codex');
+    if (getDependencyStatus('codex_cli') === admittedSetup) clearDependencyStatus('codex_cli');
+    return result;
   }
 
-  private runCli(config: CliConfig, args: string[], prompt: string, cwd: string, signal?: AbortSignal): Promise<CliRunResult> {
-    return new Promise((resolve, reject) => {
-      let stdout = '';
-      let stderr = '';
-      let outputBytes = 0;
-      let settled = false;
-      let terminationError: Error | null = null;
-      let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
-      const child = spawn(config.executablePath, args, {
-        cwd,
-        env: config.env,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        windowsHide: true,
-        detached: process.platform !== 'win32',
-        shell: false,
-      });
-
-      const finish = (error?: Error): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        if (forceKillTimer) clearTimeout(forceKillTimer);
-        signal?.removeEventListener('abort', onAbort);
-        if (error) reject(error);
-        else resolve({ stdout, stderr });
-      };
-      const terminate = (error: Error): void => {
-        if (terminationError) return;
-        terminationError = error;
-        if (child.pid && process.platform !== 'win32') {
-          try { process.kill(-child.pid, 'SIGTERM'); } catch { child.kill('SIGTERM'); }
-        } else {
-          child.kill('SIGTERM');
-        }
-        forceKillTimer = setTimeout(() => {
-          if (settled) return;
-          if (child.pid && process.platform !== 'win32') {
-            try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
-          } else {
-            child.kill('SIGKILL');
-          }
-        }, 2_000);
-        forceKillTimer.unref();
-      };
-      const timer = setTimeout(() => terminate(new Error('CLI request timed out')), config.timeoutMs);
-      timer.unref();
-      const onAbort = (): void => terminate(abortError());
-      signal?.addEventListener('abort', onAbort, { once: true });
-
-      const append = (target: 'stdout' | 'stderr', chunk: Buffer): void => {
-        outputBytes += chunk.byteLength;
-        if (outputBytes > config.maxOutputBytes) {
-          terminate(new Error('CLI output exceeded the configured limit'));
-          return;
-        }
-        if (target === 'stdout') stdout += chunk.toString('utf8');
-        else stderr += chunk.toString('utf8');
-      };
-      child.stdout?.on('data', (chunk: Buffer) => append('stdout', chunk));
-      child.stderr?.on('data', (chunk: Buffer) => append('stderr', chunk));
-      child.on('error', (error: NodeJS.ErrnoException) => {
-        if (error.code === 'ENOENT') {
-          finish(new ClassifiedProviderError(`${this.providerName} executable was not found`, {
-            kind: 'setup_required', cause: new Error('CLI executable unavailable'),
-          }));
-        } else {
-          finish(classifyCodexCliFailure(error.message, new Error('CLI spawn failed')));
-        }
-      });
-      child.on('close', (code) => {
-        if (terminationError) {
-          if (terminationError.name === 'AbortError') finish(terminationError);
-          else finish(classifyCodexCliFailure(terminationError.message, terminationError));
-          return;
-        }
-        if (code !== 0) {
-          finish(classifyCodexCliFailure(`${stderr}\n${stdout}`, new Error(`CLI exit code ${code ?? 'null'}`)));
-          return;
-        }
-        finish();
-      });
-      child.stdin?.end(prompt);
+  /**
+   * An app-server internal fault is transient: the session resumes on the
+   * transport backoff, which has no cap off the cmem gateway. From the second
+   * in a row for the same session, say at WARN what keeps failing and how many
+   * times, so a fault that never clears is not lost among routine retry lines.
+   * Counted per session: another session's served request does not hide one
+   * whose own requests keep failing.
+   */
+  private noteServerFault(error: unknown, sessionDbId: number | undefined): void {
+    if (sessionDbId === undefined) return;
+    if (!isClassified(error) || error.kind !== 'transient' || !CODEX_SERVER_FAULT.test(error.message)) return;
+    const consecutive = (this.serverFaultsBySession.get(sessionDbId) ?? 0) + 1;
+    this.serverFaultsBySession.delete(sessionDbId);
+    this.serverFaultsBySession.set(sessionDbId, consecutive);
+    if (this.serverFaultsBySession.size > MAX_TRACKED_FAULT_SESSIONS) {
+      const oldest = this.serverFaultsBySession.keys().next().value;
+      if (oldest !== undefined) this.serverFaultsBySession.delete(oldest);
+    }
+    if (consecutive < 2) return;
+    logger.warn('SDK', 'Codex app-server keeps failing with an internal error; retrying on the transport backoff', {
+      sessionId: sessionDbId,
+      consecutive,
+      message: error.message,
     });
+  }
+
+  private runTurnWithRetry(
+    prompt: string,
+    config: CodexConfig,
+    timeoutMs: number,
+    abortSignal: AbortSignal | undefined,
+    paidSendBudget: PaidSendBudget | undefined,
+  ): Promise<CodexAppServerTurnResult> {
+    return this.appServer.withClient((client, admittedSignal) => withRetry(async attemptSignal => {
+      try {
+        return await client.runTurn({
+          codexPath: config.codexPath,
+          model: config.model,
+          reasoningEffort: config.reasoningEffort,
+          timeoutMs,
+          prompt,
+          signal: attemptSignal,
+          // Rechecked after the wait for the serialized app-server: the request
+          // this one queued behind may have found setup broken or armed the
+          // breaker.
+          beforeSend: () => {
+            attemptSignal.throwIfAborted();
+            const setup = getDependencyStatus('codex_cli');
+            if (setup && isDependencyStatusInCooldown(setup, CODEX_CLI_SETUP_RECHECK_COOLDOWN_MS)) {
+              throw new ClassifiedProviderError(setup.message, {
+                kind: 'setup_required', cause: null, code: CODEX_COOLDOWN_REFUSAL_CODE,
+              });
+            }
+            const cooldown = getQuotaCooldown('codex');
+            if (cooldown && isQuotaCooldownActive('codex')) throw cooldownRefusal(cooldown);
+          },
+          onFailure: error => {
+            if (attemptSignal.aborted) return;
+            publishCodexFailure(isClassified(error) ? error : classifyCodexError(error));
+          },
+        });
+      } catch (error) {
+        if (attemptSignal.aborted || isClassified(error)) throw error;
+        throw classifyCodexError(error);
+      }
+      // maxRetries bounds in-place retries of refusals only (a rate limit, an
+      // armed breaker); the paid-send budget bounds every resend of the batch.
+    }, { label: 'Codex', maxRetries: 1, perAttemptTimeoutMs: timeoutMs, abortSignal: admittedSignal, paidSendBudget }), abortSignal);
   }
 }
 

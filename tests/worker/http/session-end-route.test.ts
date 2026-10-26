@@ -11,6 +11,7 @@ type Handler = (req: Request, res: Response) => void;
 function captureSessionEndHandler(routes: SessionRoutes): Handler {
   let handler: Handler | undefined;
   const app = {
+    get: () => {},
     post: mock((path: string, ...handlers: Handler[]) => {
       if (path === '/api/sessions/session-end') {
         handler = handlers.at(-1);
@@ -54,19 +55,17 @@ function makeRoutes(findSessionDbIdByContentSessionId: ReturnType<typeof mock>, 
     {} as any,
     {} as any,
     {} as any,
-    {} as any,
   );
 }
 
 describe('SessionEnd route', () => {
-  it.each(['claude', 'codex', 'gemini', 'openrouter'] as const)('formats through the active %s summary provider and model', async provider => {
+  it.each(['claude', 'gemini', 'openrouter'] as const)('formats through the active %s summary provider and model', async provider => {
     let formatter!: TelegramWrapupFormatter;
     const input: TelegramWrapupFormatterInput = {
       sessionDbId: 42, contentSessionId: 'session', project: 'project', platformSource: 'claude', summaryText: 'whole summary',
     };
     const agents = {
       claude: { formatTelegramWrapup: mock(async () => '• Claude summary') },
-      codex: { formatTelegramWrapup: mock(async () => '• Codex summary') },
       gemini: { formatTelegramWrapup: mock(async () => '• Gemini summary') },
       openrouter: { formatTelegramWrapup: mock(async () => '• OpenRouter summary') },
     };
@@ -74,7 +73,7 @@ describe('SessionEnd route', () => {
     new SessionRoutes({
       getSession: () => ({ currentProvider: provider, lastModelId: 'active-model' }),
       setTelegramWrapupFormatter: (value: TelegramWrapupFormatter) => { formatter = value; },
-    } as any, {} as any, agents.claude as any, agents.codex as any, agents.gemini as any, agents.openrouter as any, {} as any, {} as any, {} as any);
+    } as any, {} as any, agents.claude as any, agents.gemini as any, agents.openrouter as any, {} as any, {} as any, {} as any);
 
     await formatter(input);
 
@@ -100,7 +99,7 @@ describe('SessionEnd route', () => {
     new SessionRoutes({
       getSession: () => undefined,
       setTelegramWrapupFormatter: (value: TelegramWrapupFormatter) => { formatter = value; },
-    } as any, {} as any, {} as any, {} as any, {} as any, { formatTelegramWrapup } as any, {} as any, {} as any, {} as any);
+    } as any, {} as any, {} as any, {} as any, { formatTelegramWrapup } as any, {} as any, {} as any, {} as any);
 
     if (fail) await expect(formatter(input)).rejects.toThrow('provider failed');
     else await expect(formatter(input)).resolves.toBe('• Formatted replay');
