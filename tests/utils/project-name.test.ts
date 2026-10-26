@@ -255,7 +255,7 @@ describe('getProjectName', () => {
       writeFileSync(join(fakeTmp, '.claude-mem-project'), '');
 
       const fakeConfig = join(tmp, 'fake-config');
-      const pluginDir = join(fakeConfig, 'plugins', 'cache', 'thedotmack', 'claude-mem', '13.0.0');
+      const pluginDir = join(fakeConfig, 'plugins', 'cache', 'richardaum', 'claude-mem', '13.0.0');
       mkdirSync(join(pluginDir, 'scripts'), { recursive: true });
       writeFileSync(join(pluginDir, '.claude-mem.json'), '{}\n');
 

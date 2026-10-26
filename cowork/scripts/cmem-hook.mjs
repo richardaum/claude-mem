@@ -338,11 +338,11 @@ function localClaudeMemInstalled() {
     settings = JSON.parse(readFileSync(join(configDir, 'settings.json'), 'utf8').replace(/^\uFEFF/, ''));
   } catch { /* missing or unreadable settings: the local launcher treats the plugin as enabled too */ }
   // The same opt-out the local launcher honors (plugin/scripts/bun-runner.js).
-  if (settings?.enabledPlugins?.['claude-mem@thedotmack'] === false) return false;
+  if (settings?.enabledPlugins?.['claude-mem@richardaum'] === false) return false;
   try {
     const registryRaw = readFileSync(join(configDir, 'plugins', 'installed_plugins.json'), 'utf8');
     const registry = JSON.parse(registryRaw.replace(/^\uFEFF/, ''));
-    const entries = registry?.plugins?.['claude-mem@thedotmack'];
+    const entries = registry?.plugins?.['claude-mem@richardaum'];
     return Array.isArray(entries) && entries.some(entry => {
       if (typeof entry?.installPath !== 'string' || !entry.installPath) return false;
       const root = existsSync(join(entry.installPath, 'hooks', 'hooks.json'))

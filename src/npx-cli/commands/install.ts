@@ -177,10 +177,10 @@ import { ensureLauncherOnPath, ensureLocalBinOnShellPath } from '../../launcher/
 function registerMarketplace(): void {
   const knownMarketplaces = readJsonSafe<Record<string, any>>(knownMarketplacesPath(), {});
 
-  knownMarketplaces['thedotmack'] = {
+  knownMarketplaces['richardaum'] = {
     source: {
       source: 'github',
-      repo: 'thedotmack/claude-mem',
+      repo: 'richardaum/claude-mem',
     },
     installLocation: marketplaceDirectory(),
     lastUpdated: new Date().toISOString(),
@@ -200,7 +200,7 @@ function registerPlugin(version: string): void {
   const cachePath = pluginCacheDirectory(version);
   const now = new Date().toISOString();
 
-  installedPlugins.plugins['claude-mem@thedotmack'] = [
+  installedPlugins.plugins['claude-mem@richardaum'] = [
     {
       scope: 'user',
       installPath: cachePath,
@@ -217,7 +217,7 @@ function enablePluginInClaudeSettings(): void {
   const settings = readJsonSafe<Record<string, any>>(claudeSettingsPath(), {});
 
   if (!settings.enabledPlugins) settings.enabledPlugins = {};
-  settings.enabledPlugins['claude-mem@thedotmack'] = true;
+  settings.enabledPlugins['claude-mem@richardaum'] = true;
 
   writeJsonFileAtomic(claudeSettingsPath(), settings);
 }
@@ -771,6 +771,11 @@ function copyPluginToMarketplace(): void {
     const sourcePath = join(packageRoot, entry);
     const destPath = join(marketplaceDir, entry);
     if (!existsSync(sourcePath)) continue;
+    // Running the built CLI directly from inside the marketplace directory
+    // (our fork's documented flow, to bypass npx name resolution) makes
+    // packageRoot === marketplaceDir. source and dest are then the same
+    // path, so deleting dest before copying would delete source too.
+    if (sourcePath === destPath) continue;
 
     if (existsSync(destPath)) {
       rmSync(destPath, { recursive: true, force: true });

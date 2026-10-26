@@ -744,12 +744,12 @@ test_find_install_dir_marketplace() {
   HOME="$fake_home"
   CLAUDE_MEM_INSTALL_DIR=""
 
-  mkdir -p "${fake_home}/.claude/plugins/marketplaces/thedotmack/plugin/scripts"
-  touch "${fake_home}/.claude/plugins/marketplaces/thedotmack/plugin/scripts/worker-service.cjs"
+  mkdir -p "${fake_home}/.claude/plugins/marketplaces/richardaum/plugin/scripts"
+  touch "${fake_home}/.claude/plugins/marketplaces/richardaum/plugin/scripts/worker-service.cjs"
 
   if find_claude_mem_install_dir 2>/dev/null; then
     test_pass "find_claude_mem_install_dir finds dir in marketplace path"
-    assert_eq "${fake_home}/.claude/plugins/marketplaces/thedotmack" "$CLAUDE_MEM_INSTALL_DIR" "CLAUDE_MEM_INSTALL_DIR set correctly for marketplace"
+    assert_eq "${fake_home}/.claude/plugins/marketplaces/richardaum" "$CLAUDE_MEM_INSTALL_DIR" "CLAUDE_MEM_INSTALL_DIR set correctly for marketplace"
   else
     test_fail "find_claude_mem_install_dir should find dir in marketplace path"
   fi

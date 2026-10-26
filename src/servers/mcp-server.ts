@@ -1308,8 +1308,8 @@ function detectMissingMarketplaceMarker(): void {
   const marketplaceCandidates = marketplaceDirectoryCandidates(home);
   const present = marketplaceCandidates.some(p => p && existsSync(p));
   const cacheCandidates = [
-    resolve(home, '.claude', 'plugins', 'cache', 'thedotmack', 'claude-mem'),
-    resolve(home, '.config', 'claude', 'plugins', 'cache', 'thedotmack', 'claude-mem'),
+    resolve(home, '.claude', 'plugins', 'cache', 'richardaum', 'claude-mem'),
+    resolve(home, '.config', 'claude', 'plugins', 'cache', 'richardaum', 'claude-mem'),
   ];
   const cachePresent = cacheCandidates.some(p => p && existsSync(p));
   const cacheRoot = cacheCandidates[0];
@@ -1317,7 +1317,7 @@ function detectMissingMarketplaceMarker(): void {
   if (!present && cachePresent) {
     logger.error(
       'SYSTEM',
-      'claude-mem MCP started but no marketplace directory was found at ~/.claude/plugins/marketplaces/thedotmack, the XDG equivalent, or the thedotmack installLocation in known_marketplaces.json. The IDE plugin loader needs that directory to fire claude-mem hooks (SessionStart, PostToolUse, Stop, etc.). Without it, MCP search will work but no new memories will be captured. To self-heal, reinstall the plugin from the marketplace (/plugin marketplace add thedotmack/claude-mem, then /plugin install claude-mem@thedotmack).',
+      'claude-mem MCP started but no marketplace directory was found at ~/.claude/plugins/marketplaces/richardaum, the XDG equivalent, or the richardaum installLocation in known_marketplaces.json. The IDE plugin loader needs that directory to fire claude-mem hooks (SessionStart, PostToolUse, Stop, etc.). Without it, MCP search will work but no new memories will be captured. To self-heal, reinstall the plugin from the marketplace (/plugin marketplace add richardaum/claude-mem, then /plugin install claude-mem@richardaum).',
       { marketplaceCandidates, cacheRoot }
     );
   }

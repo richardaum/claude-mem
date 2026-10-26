@@ -374,13 +374,13 @@ check('project is NOT a setting — env override ignored', received[0]?.body.pro
 // with its hook and worker files means no cmem.ai traffic at all (no context
 // read, no capture), worker up or down ----
 console.log('\n[9c] local-first');
-const LOCAL_PLUGIN = TESTHOME + '/.claude/plugins/cache/thedotmack/claude-mem/13.30.0';
+const LOCAL_PLUGIN = TESTHOME + '/.claude/plugins/cache/richardaum/claude-mem/13.30.0';
 mkdirSync(LOCAL_PLUGIN + '/hooks', { recursive: true });
 mkdirSync(LOCAL_PLUGIN + '/scripts', { recursive: true });
 writeFileSync(LOCAL_PLUGIN + '/hooks/hooks.json', '{}');
 writeFileSync(LOCAL_PLUGIN + '/scripts/worker-service.cjs', '// owned injector fixture');
-writeFileSync(TESTHOME + '/.claude/settings.json', JSON.stringify({ enabledPlugins: { 'claude-mem@thedotmack': true } }));
-writeFileSync(TESTHOME + '/.claude/plugins/installed_plugins.json', JSON.stringify({ version: 2, plugins: { 'claude-mem@thedotmack': [{ installPath: LOCAL_PLUGIN }] } }));
+writeFileSync(TESTHOME + '/.claude/settings.json', JSON.stringify({ enabledPlugins: { 'claude-mem@richardaum': true } }));
+writeFileSync(TESTHOME + '/.claude/plugins/installed_plugins.json', JSON.stringify({ version: 2, plugins: { 'claude-mem@richardaum': [{ installPath: LOCAL_PLUGIN }] } }));
 received = [];
 // run() points CLAUDE_MEM_WORKER_PORT at port 1, so the local worker is down (a cold start)
 const localStart = await run('context', { session_id: 's9', cwd: '/home/claude', source: 'startup' });

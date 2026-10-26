@@ -267,7 +267,7 @@ function resolveDataDir() {
 var DATA_DIR = resolveDataDir();
 var DEFAULT_CLAUDE_CONFIG_DIR = join3(homedir2(), ".claude");
 var CLAUDE_CONFIG_DIR = process.env.CLAUDE_CONFIG_DIR || DEFAULT_CLAUDE_CONFIG_DIR;
-var MARKETPLACE_ROOT = join3(CLAUDE_CONFIG_DIR, "plugins", "marketplaces", "thedotmack");
+var MARKETPLACE_ROOT = join3(CLAUDE_CONFIG_DIR, "plugins", "marketplaces", "richardaum");
 var LOGS_DIR = join3(DATA_DIR, "logs");
 var USER_SETTINGS_PATH = join3(DATA_DIR, "settings.json");
 var DB_FILENAME = "claude-mem.db";

@@ -12,7 +12,7 @@ import { readJsonFileWithBom, writeJsonFileAtomic } from '../../shared/atomic-js
 import { buildSpawnSyncInvocation, lookupWindowsCommand } from '../../shared/spawn.js';
 import { disableCodexPluginForHome, installCodexPluginForHome } from './CodexCliInstaller.js';
 
-const CLAUDE_PLUGIN = 'claude-mem@thedotmack';
+const CLAUDE_PLUGIN = 'claude-mem@richardaum';
 const CODEX_PLUGIN = 'claude-mem@claude-mem-local';
 type Driver = 'codex' | 'claudeAgent';
 type Document = Record<string, unknown>;
@@ -208,7 +208,7 @@ function pluginAssetsPresent(provider: T3CodeProvider, spawn: NonNullable<T3Code
   } else {
     const marketplaces = join(provider.homePath, 'plugins', 'known_marketplaces.json');
     if (!existsSync(marketplaces)) return false;
-    const known = readDocument(marketplaces).thedotmack;
+    const known = readDocument(marketplaces).richardaum;
     if (!isRecord(known) || typeof known.installLocation !== 'string' || !existsSync(join(known.installLocation, '.claude-plugin', 'marketplace.json'))) return false;
     const entries = JSON.parse(runProvider(provider, ['plugin', 'list', '--json'], spawn));
     if (!Array.isArray(entries)) return false;
@@ -249,17 +249,17 @@ export async function installT3Code(marketplaceRoot: string, options: T3CodeOpti
         } else {
           const knownPath = join(provider.homePath, 'plugins', 'known_marketplaces.json');
           const known = existsSync(knownPath) ? readDocument(knownPath) : {};
-          const marketplace = known.thedotmack;
+          const marketplace = known.richardaum;
           // The main installer already registers the default Claude home.
           if (!isRecord(marketplace)) {
             runProvider(provider, ['plugin', 'marketplace', 'add', root], spawn);
           } else if (marketplace.installLocation !== root
-            && (!isRecord(marketplace.source) || (marketplace.source.repo !== 'thedotmack/claude-mem' && marketplace.source.path !== root))) {
-            throw new Error('The thedotmack marketplace points to another source. Repair its registration with the main Claude-Mem installer.');
+            && (!isRecord(marketplace.source) || (marketplace.source.repo !== 'richardaum/claude-mem' && marketplace.source.path !== root))) {
+            throw new Error('The richardaum marketplace points to another source. Repair its registration with the main Claude-Mem installer.');
           } else if (marketplace.installLocation !== root) {
             // Keep other marketplace entries and installed plugins intact while
             // redirecting this provider to the bundle validated above.
-            known.thedotmack = { ...marketplace, source: { source: 'directory', path: root }, installLocation: root, lastUpdated: new Date().toISOString() };
+            known.richardaum = { ...marketplace, source: { source: 'directory', path: root }, installLocation: root, lastUpdated: new Date().toISOString() };
             writeJsonFileAtomic(knownPath, known);
           }
           runProvider(provider, ['plugin', 'install', CLAUDE_PLUGIN, '--scope', 'user'], spawn);

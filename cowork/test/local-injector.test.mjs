@@ -55,7 +55,7 @@ for (const scenario of cases) {
     const home = mkdtempSync(join(tmpdir(), 'owned-cowork-injector-'));
     const configDir = join(home, 'claude-config');
     mkdirSync(configDir);
-    const plugin = join(configDir, 'plugins/cache/thedotmack/claude-mem/13.30.0');
+    const plugin = join(configDir, 'plugins/cache/richardaum/claude-mem/13.30.0');
     if (scenario.cache) mkdirSync(plugin, { recursive: true });
     if (scenario.files || scenario.registered) {
       mkdirSync(join(plugin, 'hooks'), { recursive: true });
@@ -66,13 +66,13 @@ for (const scenario of cases) {
     // An uninstall drops the registry entry, and Claude Code stamps the cache copy it no longer loads.
     if (scenario.orphaned) writeFileSync(join(plugin, '.orphaned_at'), String(Date.now()));
     if (scenario.registered) {
-      writeFileSync(join(configDir, 'plugins/installed_plugins.json'), JSON.stringify({ version: 2, plugins: { 'claude-mem@thedotmack': [{ installPath: plugin }] } }));
+      writeFileSync(join(configDir, 'plugins/installed_plugins.json'), JSON.stringify({ version: 2, plugins: { 'claude-mem@richardaum': [{ installPath: plugin }] } }));
     }
     if (scenario.settings) writeFileSync(join(configDir, 'settings.json'), JSON.stringify(scenario.settings));
     if (scenario.malformedSettings) writeFileSync(join(configDir, 'settings.json'), '{"enabledPlugins": ');
     if (scenario.enabled !== undefined) {
       writeFileSync(join(configDir, 'settings.json'), (scenario.bom ? '\uFEFF' : '') + JSON.stringify({
-        enabledPlugins: { 'claude-mem@thedotmack': scenario.enabled },
+        enabledPlugins: { 'claude-mem@richardaum': scenario.enabled },
       }));
     }
     const cloudRequests = [];

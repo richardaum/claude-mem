@@ -60,8 +60,8 @@ const home = homedir();
 const claudeConfig = option('--claude-config-dir') || process.env.CLAUDE_CONFIG_DIR || path.join(home, '.claude');
 const codexHome = option('--codex-dir') || process.env.CODEX_HOME || path.join(home, '.codex');
 const targets = [
-  { root: path.join(claudeConfig, 'plugins/marketplaces/thedotmack/plugin'), instructions: path.join(claudeConfig, 'CLAUDE.md') },
-  { root: path.join(claudeConfig, `plugins/cache/thedotmack/claude-mem/${version}`), instructions: path.join(claudeConfig, 'CLAUDE.md') },
+  { root: path.join(claudeConfig, 'plugins/marketplaces/richardaum/plugin'), instructions: path.join(claudeConfig, 'CLAUDE.md') },
+  { root: path.join(claudeConfig, `plugins/cache/richardaum/claude-mem/${version}`), instructions: path.join(claudeConfig, 'CLAUDE.md') },
   { root: path.join(codexHome, `plugins/cache/claude-mem-local/claude-mem/${version}`), instructions: path.join(codexHome, 'AGENTS.md') },
 ].filter(target => existsSync(target.root));
 if (targets.length === 0) fail('No supported installed claude-mem plugin found for this version');

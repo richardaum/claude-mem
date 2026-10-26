@@ -6,8 +6,8 @@
     "name": "Alex Newman",
     "url": "https://github.com/thedotmack"
   },
-  "homepage": "https://github.com/thedotmack/claude-mem#readme",
-  "repository": "https://github.com/thedotmack/claude-mem",
+  "homepage": "https://github.com/richardaum/claude-mem#readme",
+  "repository": "https://github.com/richardaum/claude-mem",
   "license": "Apache-2.0",
   "skills": "./plugin/skills/",
   "mcpServers": "./plugin/qoder.mcp.json",
